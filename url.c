@@ -210,6 +210,8 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
         pcre_free_substring(portstr);
     }
 
+    #undef get_nonempty_substring_or_die
+    
     // All done
     return 0;
 

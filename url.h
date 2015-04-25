@@ -4,7 +4,6 @@
  * URL parsing 
  */
 
-
 #ifndef _HTTPGET_URL_H_
 #define _HTTPGET_URL_H_
 
