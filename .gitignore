@@ -33,3 +33,4 @@
 httpget
 test/urltest
 urltest
+*.html

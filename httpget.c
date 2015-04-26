@@ -70,38 +70,44 @@ static int connect_socket(const char* host, const char* port, int* out_sockfd)
 
     int fd = -1;
     struct addrinfo* hostinfo = res;
-    while (hostinfo != NULL) {
-
+    while (hostinfo != NULL) 
+    {
         // Look for AF_INET and AF_INET6 family
         if (hostinfo->ai_family == AF_INET || hostinfo->ai_family == AF_INET6) {
-            fd = socket(hostinfo->ai_family, hostinfo->ai_socktype, hostinfo->ai_protocol);
-            if (fd < 0) {
-                perror("Failed to create socket");
-                freeaddrinfo(res);
-                return -1;
-            }
-
-
-            error = connect(fd, hostinfo->ai_addr, hostinfo->ai_addrlen);
-            if (error) {
-                fprintf(stderr, "Failed to connect: %s\n", strerror(error));
-                close(fd);
-                freeaddrinfo(res);
-                return error;
-            }
-
             break;
         }
 
         hostinfo = hostinfo->ai_next;
     }
 
-    assert(fd >= 0);
+    if (!hostinfo) {
+        fprintf(stderr, "Could not find suitable addrinfo to connect\n");
+        error = ENOENT;
+        goto error_out;
+    }
+    
+    fd = socket(hostinfo->ai_family, hostinfo->ai_socktype, hostinfo->ai_protocol);
+    if (fd < 0) {
+        error = errno;
+        perror("Failed to create socket");
+        goto error_out;
+    }
 
-    freeaddrinfo(res);
+    error = connect(fd, hostinfo->ai_addr, hostinfo->ai_addrlen);
+    if (error) {
+        fprintf(stderr, "Failed to connect: %s\n", strerror(error));
+        goto error_out;
+    }
+
     *out_sockfd = fd;
+    
+error_out:
+    freeaddrinfo(res);
+    if (error && (fd >= 0)) {
+        close(fd);  
+    } 
 
-    return 0;
+    return error;
 }
 
 /*
@@ -126,8 +132,6 @@ static int send_http_get(const url_t* url, int sockfd)
 
     snprintf(query, bufsize, format, path, url->host);
 
-    //fprintf(stderr, "Query: \'%s\'\n", query);
-
     // Send the query
     int sent = 0;
     while (sent < query_length) {
@@ -135,7 +139,7 @@ static int send_http_get(const url_t* url, int sockfd)
         if (res == -1) {
             perror("send failed\n");
             free(query);
-            return res;
+            return -1;
         }
 
         sent += res;
@@ -153,10 +157,9 @@ static int recv_line(int sockfd, char* buf, size_t maxchars)
 {
     size_t nbytes = 0;
     char prev = '\0';
-    char cur = '\0';
     while (maxchars-- > 0)
     {
-        int res = recv(sockfd, &cur, 1, 0);
+        int res = recv(sockfd, buf, 1, 0);
         if (res == -1) {
             perror("recv failed");
             return res;
@@ -166,12 +169,11 @@ static int recv_line(int sockfd, char* buf, size_t maxchars)
         }
 
         // Look for \r\n
-        if (prev == '\r' && cur == '\n') {
+        if (prev == '\r' && *buf == '\n') {
             break;
         }
 
-        *buf++ = cur;
-        prev = cur;
+        prev = *buf++;
         ++nbytes;
     }
 
@@ -179,7 +181,7 @@ static int recv_line(int sockfd, char* buf, size_t maxchars)
 }
 
 /*
- * Parse HTTP reply header, extracts status and skip until the start of data
+ * Parse HTTP reply header, extract status and skip until the start of data
  */
 static int parse_http_reply(int sockfd)
 {
@@ -207,7 +209,8 @@ static int parse_http_reply(int sockfd)
 
     int matchvec[9] = {0};
     int nmatches = pcre_exec(re, NULL, linebuf, strlen(linebuf), 0, 0, matchvec, sizeof(matchvec) / sizeof(*matchvec));
-    pcre_free(re);
+
+    pcre_free(re); // Don't need it anymore
 
     if (nmatches < 0) {
         fprintf(stderr, "HTTP reply header match failed: %d\n", nmatches);
@@ -249,12 +252,6 @@ static int parse_http_reply(int sockfd)
 }
 
 /*************************************************************************************************/
-
-static void sighandler(int signo)
-{
-    fprintf(stderr, "Terminated by signal\n");
-    exit(EXIT_FAILURE);
-}
 
 static void usage()
 {
@@ -307,9 +304,11 @@ int main(int argc, char** argv)
 
     error = parse_url(urlstr, &url);
     if (error) {
-        return error;
+        fprintf(stderr, "Could not parse URL \'%s\'\n", urlstr);
+        goto out;
     }
 
+    // Check for supported scheme (default scheme is http)
     const char* scheme = (url.scheme ? url.scheme : "http");
     if (0 != strcmp(scheme, "http")) {
         printf("Scheme '%s' is not supported\n", scheme);
@@ -317,32 +316,14 @@ int main(int argc, char** argv)
         goto out;
     }        
 
+    // Authentication is not supported
     if (url.username || url.password) {
         printf("Authentication is not supported\n");
         error = ENOTSUP;
         goto out;
     }
 
-    signal(SIGINT, sighandler);
-
-    error = connect_socket(url.host, (url.port ? url.port : "80"), &sockfd);
-    if (error) {
-        goto out;
-    }
-
-    printf("Connected to %s\n", url.host);
-
-    error = send_http_get(&url, sockfd);
-    if (error) {
-        goto out;
-    }
-
-    error = parse_http_reply(sockfd);
-    if (error) {
-        goto out;
-    }
-
-    // Open output stream
+    // Open output file if needed
     if (outstr) {
         outfile = fopen(outstr, "w+");
     }
@@ -352,8 +333,27 @@ int main(int argc, char** argv)
         goto out;
     }
 
-    // parse_http_reply will position sockfd at the start of data on success
-    // read remaining data
+    // Connect to host
+    error = connect_socket(url.host, (url.port ? url.port : "80"), &sockfd);
+    if (error) {
+        goto out;
+    }
+
+    printf("Connected to %s\n", url.host);
+
+    // Construct and send HTTP GET request
+    error = send_http_get(&url, sockfd);
+    if (error) {
+        goto out;
+    }
+
+    // Patse HTTP GET reply, check status and advance to start of data
+    error = parse_http_reply(sockfd);
+    if (error) {
+        goto out;
+    }
+
+    // read remaining data in chunks
     char buf[1024] = {0};
     while(1) 
     {
@@ -371,7 +371,7 @@ int main(int argc, char** argv)
     }
 
 out:
-    // Cleanup on both error and success passes
+    // Cleanup and return
     if (sockfd >= 0) {
         close(sockfd);
     }
