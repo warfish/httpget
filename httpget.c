@@ -5,6 +5,7 @@
  */
 
 #define _POSIX_SOURCE
+#define _GNU_SOURCE
 
 #include "url.h"
 
@@ -112,7 +113,9 @@ static int send_http_get(const url_t* url, int sockfd)
 
     // Build HTTP get query
     const char* format = "GET %s HTTP/1.0\r\nHost: %s\r\n\r\n";
-    size_t query_length = snprintf(NULL, 0, format, url->path ? url->path : "/", url->host);
+    const char* path = (url->fullpath ? url->fullpath : "/");
+
+    size_t query_length = snprintf(NULL, 0, format, path, url->host);
     size_t bufsize = query_length + 1;
 
     char* query = calloc(1, bufsize);
@@ -121,7 +124,9 @@ static int send_http_get(const url_t* url, int sockfd)
         return ENOMEM;
     }
 
-    snprintf(query, bufsize, format, (url->path ? url->path : "/"), url->host);
+    snprintf(query, bufsize, format, path, url->host);
+
+    //fprintf(stderr, "Query: \'%s\'\n", query);
 
     // Send the query
     int sent = 0;
@@ -245,33 +250,56 @@ static int parse_http_reply(int sockfd)
 
 /*************************************************************************************************/
 
-static void usage()
-{
-    fprintf(stdout, "httpget - simple HTTP client to download URL contents\n");
-    fprintf(stdout, "httpget URL [output file]\n");
-    fprintf(stdout, "\n");
-    fprintf(stdout, "URL - HTTP urls are accepted as targets. Proxy is not supported.\n");
-    fprintf(stdout, "output file - Optional file name to store URL contents in. Will use stdout if not specified.\n");
-}
-
 static void sighandler(int signo)
 {
     fprintf(stderr, "Terminated by signal\n");
     exit(EXIT_FAILURE);
 }
 
+static void usage()
+{
+    printf("httpget -u URL [-o path] [-h]\n");
+    printf("simple HTTP client to download URL contents\n");
+    printf("  -h   This help\n");
+    printf("  -u   HTTP urls are accepted as targets. Proxy is not supported.\n");
+    printf("  -o   Optional file name to store URL contents in. Will use stdout if not specified.\n");
+}
+
 int main(int argc, char** argv)
 {
     int error = 0;
 
-    if (argc < 2 || argc > 3) {
-        fprintf(stderr, "Invalid number of arguments\n");
-        usage();
-        return EINVAL;
+    const char* urlstr = NULL;
+    const char* outstr = NULL;
+
+    int c;
+    while((c = getopt(argc, argv, "hu:o:")) != -1)
+    {
+        switch(c)
+        {
+        case 'u':
+            urlstr = optarg;
+            break;
+
+        case 'o':
+            outstr = optarg;
+            break;
+
+        case 'h': 
+            usage();
+            exit(EXIT_SUCCESS);
+
+        default:
+            usage();
+            exit(EXIT_FAILURE);            
+        }
     }
 
-    const char* urlstr = argv[1];
-    const char* output = (argc == 3 ? argv[2] : NULL);
+    if (!urlstr) {
+        fprintf(stderr, "Please provide URL string\n");
+        usage();
+        exit(EXIT_FAILURE);
+    }
 
     url_t url;
     int sockfd = -1;
@@ -315,8 +343,8 @@ int main(int argc, char** argv)
     }
 
     // Open output stream
-    if (output) {
-        outfile = fopen(output, "w+");
+    if (outstr) {
+        outfile = fopen(outstr, "w+");
     }
 
     if (!outfile) {

@@ -30,6 +30,7 @@ typedef struct url
     const char* args;
     const char* anchor;
     const char* port;     
+    const char* fullpath;   // path + args + anchor in one string
 } url_t;
 
 /**

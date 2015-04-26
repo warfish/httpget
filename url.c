@@ -18,8 +18,8 @@
  * Regex string below is a modified version of the one found in RFC 2396 Appendix B
  * Modified to support optional scheme, username and password and also makes host field mandatory
  */
-//                                    012              34         5 6             7         8 9         10       11  12       1314  
-static const char* g_url_regex_str = "^(([^:/?#]+)://)?(([^:/?#]*)(:([^/?#]*))?@)?([^:/?#]+)(:([\\d]+))?([^?#]*)?(\\?([^#]*))?(#([^#]*))?$";
+//                                    012              34         5 6             7         8 9         AB        C   D        E F  
+static const char* g_url_regex_str = "^(([^:/?#]+)://)?(([^:/?#]*)(:([^/?#]*))?@)?([^:/?#]+)(:([\\d]+))?(([^?#]*)?(\\?([^#]*))?(#([^#]*))?)?$";
 
 /*
  * Match string indexes for above url regex
@@ -31,11 +31,12 @@ enum
     URL_MATCH_PASSWORD  = 6,
     URL_MATCH_HOST      = 7,
     URL_MATCH_PORT      = 9,
-    URL_MATCH_PATH      = 10,
-    URL_MATCH_ARGS      = 12,
-    URL_MATCH_ANCHOR    = 14, 
+    URL_MATCH_FULLPATH  = 10,
+    URL_MATCH_PATH      = 11,
+    URL_MATCH_ARGS      = 13,
+    URL_MATCH_ANCHOR    = 15, 
 
-    URL_MATCH_MAX       = 15
+    URL_MATCH_MAX       = 16
 };
 
 /*
@@ -154,7 +155,7 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
         default                      : return -1;
         }
     }
-    
+
     /*
     for(size_t i = 0; i < URL_MATCH_MAX; ++i) {
         const char* match = NULL;
@@ -163,7 +164,7 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
         pcre_free_substring(match);
     }
     */
-
+    
     #define get_nonempty_substring_or_die(_subject_, _ovector_, _stringcount_, _stringnumber_, _stringptr_) \
         error = get_nonempty_substring(_subject_, _ovector_, _stringcount_, _stringnumber_, _stringptr_);   \
         if (error) {                                                                                        \
@@ -178,7 +179,8 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_ARGS, &out_url->args);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_ANCHOR, &out_url->anchor);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_PORT, &out_url->port);    
-    
+    get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_FULLPATH, &out_url->fullpath);
+
     #undef get_nonempty_substring_or_die
 
     // Postcondition: host field is always set otherwise regex match should've failed
@@ -215,6 +217,7 @@ void url_free(url_t* url)
     url_free_kill_substring(url->args);
     url_free_kill_substring(url->anchor);
     url_free_kill_substring(url->port);
+    url_free_kill_substring(url->fullpath);
 
     #undef url_free_kill_substring
 }
