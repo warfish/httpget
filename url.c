@@ -17,11 +17,11 @@
 
 /*
  * Regex string below is a modified version of the one found in RFC 2396 Appendix B
- * Modified to support optional scheme, username and password
+ * Modified to support optional scheme, username and password and also makes host field mandatory
  */
-//static const char* g_url_regex_str = "^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?";
-static const char* g_url_regex_str   = "^(([^:/?#]+)://)?(([^/?#]*):([^/?#]*)@)?([^:/?#]*)?(:([\\d]+))?([^?#]*)(\\?([^#]*))?(#(.*))?";
-//                                       12              34         5           6          7 8         9       10  11       1213
+//                                      012              34         5 6             7         8 9         10       11  12       1314  
+static const char* g_url_regex_str   = "^(([^:/?#]+)://)?(([^:/?#]*)(:([^/?#]*))?@)?([^:/?#]+)(:([\\d]+))?([^?#]*)?(\\?([^#]*))?(#([^#]*))?$";
+
 
 /*
  * Match string indexes for above url regex
@@ -30,14 +30,14 @@ enum
 {
     URL_MATCH_SCHEME = 2,
     URL_MATCH_USERNAME = 4,
-    URL_MATCH_PASSWORD = 5,
-    URL_MATCH_HOST = 6,
-    URL_MATCH_PORT = 8,
-    URL_MATCH_PATH = 9,
-    URL_MATCH_ARGS = 11,
-    URL_MATCH_ANCHOR = 13, 
+    URL_MATCH_PASSWORD = 6,
+    URL_MATCH_HOST = 7,
+    URL_MATCH_PORT = 9,
+    URL_MATCH_PATH = 10,
+    URL_MATCH_ARGS = 12,
+    URL_MATCH_ANCHOR = 14, 
 
-    URL_MATCH_MAX = 14
+    URL_MATCH_MAX = 15
 };
 
 
@@ -116,7 +116,7 @@ void url_parser_free(url_parser_t* parser)
 
 /*
  * A wrapper for pcre_get_substring
- * Will return a NULL string pointer if substring matched to "" empty string
+ * Will return a NULL string pointer if substring matched to "" empty string indicating no match
  */
 static int get_nonempty_substring(const char* subject, int* ovector, int stringcount, int stringnumber, const char** stringptr)
 {
@@ -124,7 +124,7 @@ static int get_nonempty_substring(const char* subject, int* ovector, int stringc
     int error = pcre_get_substring(subject, ovector, stringcount, stringnumber, &str);
     if (error < 0) {
         switch(error) {
-        case PCRE_ERROR_NOSUBSTRING : return EINVAL;
+        case PCRE_ERROR_NOSUBSTRING : break; // Substring was not matched at all which is a valid case for us
         case PCRE_ERROR_NOMEMORY    : return ENOMEM;
         default: assert(error >= 0);
         }
@@ -172,7 +172,7 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
     memset(out_url, 0, sizeof(*out_url));
 
     int matchvec[URL_MATCH_MAX * 3] = {0}; // PCRE wants 3 elements per match 
-    int nmatches = pcre_exec(parser->re, parser->re_study, urlstr, strlen(urlstr), 0, PCRE_NOTEMPTY, matchvec, countof(matchvec));
+    int nmatches = pcre_exec(parser->re, parser->re_study, urlstr, strlen(urlstr), 0, 0, matchvec, countof(matchvec));
     if (nmatches < 0) {
         switch(nmatches) {
         case PCRE_ERROR_NOMATCH      : return EINVAL;
@@ -182,12 +182,14 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
     }
     
     // Something matched, decompose
-    //for(size_t i = 0; i < MAX_MATCHES; ++i) {
-    //    const char* match = NULL;
-    //    pcre_get_substring(urlstr, matchvec, nmatches, i, &match);
-    //    printf("[%ld] \'%s\'\n", i, match);
-    //    pcre_free_substring(match);
-    //}
+    /*
+    for(size_t i = 0; i < URL_MATCH_MAX; ++i) {
+        const char* match = NULL;
+        pcre_get_substring(urlstr, matchvec, nmatches, i, &match);
+        printf("[%ld] \'%s\'\n", i, match);
+        pcre_free_substring(match);
+    }
+    */
 
     #define get_nonempty_substring_or_die(_subject_, _ovector_, _stringcount_, _stringnumber_, _stringptr_) \
         error = get_nonempty_substring(_subject_, _ovector_, _stringcount_, _stringnumber_, _stringptr_);   \
@@ -195,23 +197,20 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
             goto error_out;                                                                                 \
         }                                                                                                   \
     
+    get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_HOST, &out_url->host);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_SCHEME, &out_url->scheme);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_USERNAME, &out_url->username);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_PASSWORD, &out_url->password);
-    get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_HOST, &out_url->host);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_PATH, &out_url->path);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_ARGS, &out_url->args);
     get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_ANCHOR, &out_url->anchor);
-
-    const char* portstr = NULL;
-    get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_PORT, &portstr);    
-    if (portstr) {
-        out_url->port = atol(portstr);
-        pcre_free_substring(portstr);
-    }
-
-    #undef get_nonempty_substring_or_die
+    get_nonempty_substring_or_die(urlstr, matchvec, nmatches, URL_MATCH_PORT, &out_url->port);    
     
+    #undef get_nonempty_substring_or_die
+
+    // Postcondition: host field is always set otherwise regex match should've failed
+    assert(out_url->host != NULL);
+
     // All done
     return 0;
 
@@ -244,7 +243,7 @@ void url_free(url_t* url)
     url_free_kill_substring(url->path);
     url_free_kill_substring(url->args);
     url_free_kill_substring(url->anchor);
-    url->port = 0;
+    url_free_kill_substring(url->port);
 
     #undef url_free_kill_substring
 }

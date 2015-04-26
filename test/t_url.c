@@ -59,7 +59,7 @@ static void test_well_formed_url(void)
     CU_ASSERT_TRUE((url.path != NULL)       && (0 == strcmp(url.path, "/path/to/stuff")));
     CU_ASSERT_TRUE((url.args != NULL)       && (0 == strcmp(url.args, "args")));
     CU_ASSERT_TRUE((url.anchor != NULL)     && (0 == strcmp(url.anchor, "anchor")));
-    CU_ASSERT_EQUAL(url.port, 80);
+    CU_ASSERT_TRUE((url.port != NULL)       && (0 == strcmp(url.port, "80")));
 
     url_free(&url);
 }
@@ -87,7 +87,46 @@ static void test_typical_http_url(void)
     CU_ASSERT_TRUE(url.scheme == NULL);
     CU_ASSERT_TRUE(url.username == NULL);
     CU_ASSERT_TRUE(url.password == NULL);
-    CU_ASSERT_EQUAL(url.port, 0);
+    CU_ASSERT_TRUE(url.port == NULL);
+
+    url_free(&url);
+}
+
+/*
+ * Some real world URLs
+ */
+static void test_examples(void)
+{
+    int error = 0;
+
+    url_t url;
+    memset(&url, 0, sizeof(url));
+
+    error = url_parse(g_parser, "www.google.com", &url);
+    CU_ASSERT_EQUAL(error, 0);
+
+    CU_ASSERT_TRUE(url.scheme == NULL);
+    CU_ASSERT_TRUE(url.username == NULL);
+    CU_ASSERT_TRUE(url.password == NULL);
+    CU_ASSERT_TRUE((url.host != NULL) && (0 == strcmp(url.host, "www.google.com")));
+    CU_ASSERT_TRUE(url.path == NULL);
+    CU_ASSERT_TRUE(url.args == NULL);
+    CU_ASSERT_TRUE(url.anchor == NULL);
+    CU_ASSERT_TRUE(url.port == NULL);
+
+    url_free(&url);
+
+    error = url_parse(g_parser, "root@192.168.0.1", &url);
+    CU_ASSERT_EQUAL(error, 0);
+
+    CU_ASSERT_TRUE(url.scheme == NULL);
+    CU_ASSERT_TRUE((url.username != NULL) && (0 == strcmp(url.username, "root")));
+    CU_ASSERT_TRUE(url.password == NULL);
+    CU_ASSERT_TRUE((url.host != NULL) && (0 == strcmp(url.host, "192.168.0.1")));
+    CU_ASSERT_TRUE(url.path == NULL);
+    CU_ASSERT_TRUE(url.args == NULL);
+    CU_ASSERT_TRUE(url.anchor == NULL);
+    CU_ASSERT_TRUE(url.port == NULL);
 
     url_free(&url);
 }
@@ -116,6 +155,7 @@ int main(void)
     CU_add_test(suite, "invalid args", test_invalid_args);
     CU_add_test(suite, "well formed url", test_well_formed_url);
     CU_add_test(suite, "typical HTTP url", test_typical_http_url);
+    CU_add_test(suite, "examples", test_examples);
 
     CU_basic_set_mode(CU_BRM_VERBOSE);
     CU_basic_run_tests();

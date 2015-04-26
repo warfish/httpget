@@ -30,7 +30,7 @@ typedef struct url
     const char* path;
     const char* args;
     const char* anchor;
-    unsigned long port;     // 0 value means port was not specified
+    const char* port;     
 } url_t;
 
 /**
