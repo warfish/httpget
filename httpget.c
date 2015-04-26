@@ -47,6 +47,9 @@ static int parse_url(const char* urlstr, url_t* url)
     return 0;
 }
 
+/*
+ * Connect to specified host
+ */
 static int connect_socket(const char* host, const char* port, int* out_sockfd)
 {
     int error = 0;
@@ -100,6 +103,9 @@ static int connect_socket(const char* host, const char* port, int* out_sockfd)
     return 0;
 }
 
+/*
+ * Prepare and send HTTP get request accroding to URL contents
+ */
 static int send_http_get(const url_t* url, int sockfd)
 {
     int res = 0;
@@ -168,7 +174,7 @@ static int recv_line(int sockfd, char* buf, size_t maxchars)
 }
 
 /*
- * Parses HTTP reply header, extracts status and skips until the start of data
+ * Parse HTTP reply header, extracts status and skip until the start of data
  */
 static int parse_http_reply(int sockfd)
 {
@@ -349,5 +355,3 @@ out:
     url_free(&url);
     return error;
 }
-
-

@@ -8,38 +8,35 @@
 
 #include <pcre.h>
 
-/*******************************************************************************/
+/*************************************************************************************/
 
 #if !defined(countof)
 #   define countof(_arr_)   (sizeof((_arr_)) / sizeof(*(_arr_))) 
 #endif 
 
-
 /*
  * Regex string below is a modified version of the one found in RFC 2396 Appendix B
  * Modified to support optional scheme, username and password and also makes host field mandatory
  */
-//                                      012              34         5 6             7         8 9         10       11  12       1314  
-static const char* g_url_regex_str   = "^(([^:/?#]+)://)?(([^:/?#]*)(:([^/?#]*))?@)?([^:/?#]+)(:([\\d]+))?([^?#]*)?(\\?([^#]*))?(#([^#]*))?$";
-
+//                                    012              34         5 6             7         8 9         10       11  12       1314  
+static const char* g_url_regex_str = "^(([^:/?#]+)://)?(([^:/?#]*)(:([^/?#]*))?@)?([^:/?#]+)(:([\\d]+))?([^?#]*)?(\\?([^#]*))?(#([^#]*))?$";
 
 /*
  * Match string indexes for above url regex
  */
 enum 
 {
-    URL_MATCH_SCHEME = 2,
-    URL_MATCH_USERNAME = 4,
-    URL_MATCH_PASSWORD = 6,
-    URL_MATCH_HOST = 7,
-    URL_MATCH_PORT = 9,
-    URL_MATCH_PATH = 10,
-    URL_MATCH_ARGS = 12,
-    URL_MATCH_ANCHOR = 14, 
+    URL_MATCH_SCHEME    = 2,
+    URL_MATCH_USERNAME  = 4,
+    URL_MATCH_PASSWORD  = 6,
+    URL_MATCH_HOST      = 7,
+    URL_MATCH_PORT      = 9,
+    URL_MATCH_PATH      = 10,
+    URL_MATCH_ARGS      = 12,
+    URL_MATCH_ANCHOR    = 14, 
 
-    URL_MATCH_MAX = 15
+    URL_MATCH_MAX       = 15
 };
-
 
 /*
  * Default parser
@@ -50,14 +47,8 @@ struct url_parser
     pcre_extra* re_study;
 };
 
+/*************************************************************************************/
 
-/**
- * @brief       Init default URL parser internal state.
- *              Separate context helps in multithreaded environments. 
- *              Also allows for other, more specialized and faster, implementations.
- *
- * @returns     0 on success, ENOMEM if there was not enough memory.
- */
 int url_parser_init_default(url_parser_t** out_parser)
 {
     if (!out_parser) {
@@ -67,7 +58,7 @@ int url_parser_init_default(url_parser_t** out_parser)
     const char* error_str = NULL;
     int error_offset = 0;
 
-    url_parser_t* parser = (url_parser_t*) calloc(1, sizeof(*parser)); // Calloc zeroes memory which is handy
+    url_parser_t* parser = (url_parser_t*) calloc(1, sizeof(*parser));
     if (!parser) {
         return ENOMEM;
     }
@@ -75,27 +66,24 @@ int url_parser_init_default(url_parser_t** out_parser)
     parser->re = pcre_compile(g_url_regex_str, PCRE_CASELESS, &error_str, &error_offset, NULL);
     if (!parser->re) {
         fprintf(stderr, "Could not compile URL regex: %s\n", error_str);
-        url_parser_free(parser);
-        return EINVAL;
+        goto error_out;
     }
 
-    // It's ok if re_study is NULL
+    // It's ok if study is NULL
     parser->re_study = pcre_study(parser->re, 0, &error_str);
     if (error_str) {
         fprintf(stderr, "Could not optimize URL regex: %s\n", error_str);
-        url_parser_free(parser);
-        return EINVAL;
+        goto error_out;
     }
 
     *out_parser = parser;
     return 0;
+
+error_out:
+    url_parser_free(parser);
+    return -1;
 }
 
-
-/**
- * @brief       Free all resources associated with this parser.
- *              NOTE: This function may be called with not fully initialized parsers
- */
 void url_parser_free(url_parser_t* parser)
 {
     if (parser) 
@@ -113,7 +101,6 @@ void url_parser_free(url_parser_t* parser)
     }
 }
 
-
 /*
  * A wrapper for pcre_get_substring
  * Will return a NULL string pointer if substring matched to "" empty string indicating no match
@@ -126,7 +113,7 @@ static int get_nonempty_substring(const char* subject, int* ovector, int stringc
         switch(error) {
         case PCRE_ERROR_NOSUBSTRING : break; // Substring was not matched at all which is a valid case for us
         case PCRE_ERROR_NOMEMORY    : return ENOMEM;
-        default: assert(error >= 0);
+        default                     : return -1;
         }
     }
 
@@ -140,19 +127,6 @@ static int get_nonempty_substring(const char* subject, int* ovector, int stringc
     return 0;
 }
 
-
-/**
- * @brief       Prase URL string into decomposed structure
- *              This function accepts a URL string and decomposes it into components: 
- *              <scheme>://<username>:<password>@<host>:<port>/<path>?<args>#<anchor>
- *              String should be a well-formed URL except that <scheme> can be ommitted in which case http will be assumed.
- *
- * @string      Input string containing a URL 
- * @out_url     On success decomposed URL will be returned in this buffer.
- *              Caller is responsible to release it using @url_free@
- *
- * @returns     0 on success
- */
 int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
 {
     int error = 0;
@@ -177,16 +151,15 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
         switch(nmatches) {
         case PCRE_ERROR_NOMATCH      : return EINVAL;
         case PCRE_ERROR_NOMEMORY     : return ENOMEM;
-        default                      : return EIO;
+        default                      : return -1;
         }
     }
     
-    // Something matched, decompose
     /*
     for(size_t i = 0; i < URL_MATCH_MAX; ++i) {
         const char* match = NULL;
         pcre_get_substring(urlstr, matchvec, nmatches, i, &match);
-        printf("[%ld] \'%s\'\n", i, match);
+        fprintf(stderr, "[%ld] \'%s\'\n", i, match);
         pcre_free_substring(match);
     }
     */
@@ -214,14 +187,12 @@ int url_parse(url_parser_t* parser, const char* urlstr, url_t* out_url)
     // All done
     return 0;
 
-error_out: // get_nonempty_substring_or_die will jump here so we can have a breakpoint on error handling outside the macro
+    // get_nonempty_substring_or_die will jump here so we can have a breakpoint on error handling outside the macro
+error_out: 
     url_free(out_url);
     return error;
 }
 
-/**
- * @brief       Release resources associated with this URL structure.
- */
 void url_free(url_t* url)
 {
     assert(url != NULL);
@@ -248,5 +219,4 @@ void url_free(url_t* url)
     #undef url_free_kill_substring
 }
 
-/*******************************************************************************/
-
+/*************************************************************************************/

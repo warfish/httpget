@@ -12,9 +12,8 @@ extern "C" {
 #endif 
 
 /**
- * @brief   URL parser context
+ * @brief   URL parser opaque context
  */
-struct url_parser;
 typedef struct url_parser url_parser_t;
 
 
@@ -35,8 +34,10 @@ typedef struct url
 
 /**
  * @brief       Init default URL parser internal state.
- *              Separate context helps in multithreaded environments. 
- *              Also allows for other, more specialized and faster, implementations.
+ *              Separate context is convinient for unit tests and multithreaded environments. 
+ *
+ * @out_parser  On success will contain pointer to initialized parser.
+ *              Caller is responsible to free it using @url_parser_free@
  *
  * @returns     0 on success, ENOMEM if there was not enough memory.
  */
@@ -48,12 +49,11 @@ int url_parser_init_default(url_parser_t** out_parser);
 void url_parser_free(url_parser_t* parser);
 
 /**
- * @brief       Prase URL string into decomposed structure
+ * @brief       Parse URL string into decomposed structure
  *
  *              This function accepts a URL string and decomposes it into components: 
- *              <scheme>://<username>:<password>@<host>:<port>/<path>?<args>
- *
- *              Everything except <host> is optional in which case corresponding fields in returned structure will contain NULLs
+ *              <scheme>://<username>:<password>@<host>:<port>/<path>?<args>#<anchor>
+ *              Everything except <host> is optional in which case corresponding fields will contain NULL pointers
  *
  * @string      Input string containing a URL 
  * @out_url     On success decomposed URL will be returned in this buffer.
@@ -62,15 +62,13 @@ void url_parser_free(url_parser_t* parser);
  * @returns     0 on success
  *              EINVAL if @string@ is not a valid URL
  *              ENOMEM if there was no memory
- *              -1 on any other unknown error
  */
 int url_parse(url_parser_t* parser, const char* string, url_t* out_url);
 
 /**
- * @brief       Release resources associated with this URL structure.
+ * @brief       Release resources allocated for this URL structure.
  */
 void url_free(url_t* url);
-
 
 #ifdef __cplusplus
 }
